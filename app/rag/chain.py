@@ -1,14 +1,15 @@
 from collections.abc import AsyncIterator
 
-from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
+from langchain_openai import AzureChatOpenAI
 
+from app.auth import get_azure_credential
 from app.config import settings
 from app.models import MessagePayload
 from app.rag.vectorstore import get_retriever
 
 SYSTEM_PROMPT = """\
-You are a helpful wedding assistant for Trev & Lin's wedding.
+You are a helpful wedding assistant for Trev & Kaitin's wedding.
 Use the following retrieved context to answer questions about the wedding.
 If you don't know the answer, say so — do not make up information.
 
@@ -17,27 +18,14 @@ Context:
 """
 
 
-def _build_llm() -> BaseChatModel:
-    if settings.llm_provider == "azure_openai":
-        from langchain_openai import AzureChatOpenAI
-
-        from app.auth import get_azure_credential
-
-        credential = get_azure_credential()
-        token = credential.get_token("https://cognitiveservices.azure.com/.default")
-        return AzureChatOpenAI(
-            azure_endpoint=settings.azure_openai_endpoint,
-            azure_deployment=settings.azure_openai_chat_deployment,
-            api_version=settings.azure_openai_api_version,
-            api_key=token.token,
-            streaming=True,
-        )
-
-    from langchain_anthropic import ChatAnthropic
-
-    return ChatAnthropic(
-        model=settings.anthropic_model,
-        api_key=settings.anthropic_api_key,
+def _build_llm() -> AzureChatOpenAI:
+    credential = get_azure_credential()
+    token = credential.get_token("https://cognitiveservices.azure.com/.default")
+    return AzureChatOpenAI(
+        azure_endpoint=settings.azure_openai_endpoint,
+        azure_deployment=settings.azure_openai_chat_deployment,
+        api_version=settings.azure_openai_api_version,
+        api_key=token.token,
         streaming=True,
     )
 

@@ -1,55 +1,55 @@
-import os
-
-from langchain_community.vectorstores import FAISS
-from langchain_core.embeddings import Embeddings
+from azure.core.credentials import AzureKeyCredential
+from azure.search.documents import SearchClient
+from azure.search.documents.models import QueryType, VectorizableTextQuery
+from langchain_core.documents import Document
+from langchain_core.retrievers import BaseRetriever
 
 from app.config import settings
 
-_vectorstore: FAISS | None = None
+
+def _build_search_client() -> SearchClient:
+    return SearchClient(
+        endpoint=settings.azure_search_endpoint,
+        index_name=settings.azure_search_index,
+        credential=AzureKeyCredential(settings.azure_search_api_key),
+    )
 
 
-def _build_embeddings() -> Embeddings:
-    if settings.llm_provider == "azure_openai":
-        from langchain_openai import AzureOpenAIEmbeddings
+class AzureAISearchRetriever(BaseRetriever):
+    """Hybrid retriever using Azure AI Search (vector + BM25 + semantic ranker)."""
 
-        from app.auth import get_azure_credential
+    search_client: SearchClient
+    top_k: int = 4
 
-        credential = get_azure_credential()
-        token = credential.get_token("https://cognitiveservices.azure.com/.default")
-        return AzureOpenAIEmbeddings(
-            azure_endpoint=settings.azure_openai_endpoint,
-            azure_deployment=settings.azure_openai_embedding_deployment,
-            api_version=settings.azure_openai_api_version,
-            api_key=token.token,
+    class Config:
+        arbitrary_types_allowed = True
+
+    def _get_relevant_documents(self, query: str, **kwargs) -> list[Document]:
+        results = self.search_client.search(
+            search_text=query,
+            vector_queries=[
+                VectorizableTextQuery(
+                    text=query,
+                    k_nearest_neighbors=self.top_k,
+                    fields="content_vector",
+                )
+            ],
+            query_type=QueryType.SEMANTIC,
+            semantic_configuration_name="default",
+            top=self.top_k,
         )
-
-    from langchain_huggingface import HuggingFaceEmbeddings
-
-    return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-
-
-def get_vectorstore() -> FAISS:
-    """Load or create the FAISS vector store."""
-    global _vectorstore
-    if _vectorstore is not None:
-        return _vectorstore
-
-    embeddings = _build_embeddings()
-    store_path = settings.vectorstore_path
-
-    if os.path.exists(store_path):
-        _vectorstore = FAISS.load_local(
-            store_path, embeddings, allow_dangerous_deserialization=True
-        )
-    else:
-        # Bootstrap with an empty store — populate later via a seed script
-        _vectorstore = FAISS.from_texts(
-            ["placeholder"], embedding=embeddings
-        )
-
-    return _vectorstore
+        return [
+            Document(
+                page_content=r["content"],
+                metadata={"score": r["@search.score"]},
+            )
+            for r in results
+        ]
 
 
-def get_retriever():
-    """Return a LangChain retriever backed by the vector store."""
-    return get_vectorstore().as_retriever(search_kwargs={"k": 4})
+def get_retriever() -> AzureAISearchRetriever:
+    """Return a hybrid retriever backed by Azure AI Search."""
+    return AzureAISearchRetriever(
+        search_client=_build_search_client(),
+        top_k=4,
+    )
