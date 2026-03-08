@@ -1,23 +1,31 @@
 import os
 
 from langchain_community.vectorstores import FAISS
-from langchain_openai import AzureOpenAIEmbeddings
+from langchain_core.embeddings import Embeddings
 
-from app.auth import get_azure_credential
 from app.config import settings
 
 _vectorstore: FAISS | None = None
 
 
-def _build_embeddings() -> AzureOpenAIEmbeddings:
-    credential = get_azure_credential()
-    token = credential.get_token("https://cognitiveservices.azure.com/.default")
-    return AzureOpenAIEmbeddings(
-        azure_endpoint=settings.azure_openai_endpoint,
-        azure_deployment=settings.azure_openai_embedding_deployment,
-        api_version=settings.azure_openai_api_version,
-        api_key=token.token,
-    )
+def _build_embeddings() -> Embeddings:
+    if settings.llm_provider == "azure_openai":
+        from langchain_openai import AzureOpenAIEmbeddings
+
+        from app.auth import get_azure_credential
+
+        credential = get_azure_credential()
+        token = credential.get_token("https://cognitiveservices.azure.com/.default")
+        return AzureOpenAIEmbeddings(
+            azure_endpoint=settings.azure_openai_endpoint,
+            azure_deployment=settings.azure_openai_embedding_deployment,
+            api_version=settings.azure_openai_api_version,
+            api_key=token.token,
+        )
+
+    from langchain_huggingface import HuggingFaceEmbeddings
+
+    return HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 
 
 def get_vectorstore() -> FAISS:

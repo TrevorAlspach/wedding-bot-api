@@ -1,10 +1,8 @@
 from collections.abc import AsyncIterator
 
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_openai import AzureChatOpenAI
 
-from app.auth import get_azure_credential
 from app.config import settings
 from app.models import MessagePayload
 from app.rag.vectorstore import get_retriever
@@ -19,14 +17,27 @@ Context:
 """
 
 
-def _build_llm() -> AzureChatOpenAI:
-    credential = get_azure_credential()
-    token = credential.get_token("https://cognitiveservices.azure.com/.default")
-    return AzureChatOpenAI(
-        azure_endpoint=settings.azure_openai_endpoint,
-        azure_deployment=settings.azure_openai_chat_deployment,
-        api_version=settings.azure_openai_api_version,
-        api_key=token.token,
+def _build_llm() -> BaseChatModel:
+    if settings.llm_provider == "azure_openai":
+        from langchain_openai import AzureChatOpenAI
+
+        from app.auth import get_azure_credential
+
+        credential = get_azure_credential()
+        token = credential.get_token("https://cognitiveservices.azure.com/.default")
+        return AzureChatOpenAI(
+            azure_endpoint=settings.azure_openai_endpoint,
+            azure_deployment=settings.azure_openai_chat_deployment,
+            api_version=settings.azure_openai_api_version,
+            api_key=token.token,
+            streaming=True,
+        )
+
+    from langchain_anthropic import ChatAnthropic
+
+    return ChatAnthropic(
+        model=settings.anthropic_model,
+        api_key=settings.anthropic_api_key,
         streaming=True,
     )
 
